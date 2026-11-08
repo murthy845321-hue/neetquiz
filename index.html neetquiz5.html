@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEETQuiz - Host-Controlled Multiplayer</title>
+    <!-- Firebase App & Firestore SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root {
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+            --accent-blue: #0284c7;
+            --accent-hover: #0369a1;
+            --accent-green: #16a34a;
+            --accent-red: #dc2626;
+            --text-light: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-light);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 650px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            position: relative;
+        }
+
+        h1 {
+            color: #38bdf8;
+            margin-bottom: 8px;
+            font-size: 2.2rem;
+        }
+
+        p {
+            color: var(--text-muted);
+            margin-bottom: 20px;
+            font-size: 1rem;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            background: var(--accent-blue);
+            color: white;
+            margin-bottom: 15px;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: #0f172a;
+            color: #fff;
+            font-size: 1rem;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: var(--accent-blue);
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            margin: 8px 0;
+            border-radius: 8px;
+            border: none;
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary { background: var(--accent-blue); color: white; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-success { background: var(--accent-green); color: white; }
+        .btn-success:hover { background: #15803d; }
+        .btn-danger { background: var(--accent-red); color: white; }
+
+        .btn-option {
+            background: #334155;
+            color: white;
+            text-align: left;
+            padding: 16px;
+            margin-bottom: 10px;
+        }
+
+        .btn-option:hover:not(:disabled) { background: #475569; }
+        .btn-option:disabled { opacity: 0.7; cursor: not-allowed; }
+        .btn-option.selected { background: var(--accent-blue); }
+
+        .timer {
+            font-size: 2.2rem;
+            font-weight: bold;
+            color: #f59e0b;
+            margin: 10px 0;
+        }
+
+        .player-list {
+            list-style: none;
+            text-align: left;
+            margin: 15px 0;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
+        .player-item {
+            padding: 12px;
+            background: #0f172a;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .audio-toggle {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--border-color);
+            padding: 6px 12px;
+            border-radius: 6px;
+            width: auto;
+            font-size: 0.8rem;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <button id="audio-btn" class="audio-toggle" onclick="toggleAudio()">🔊 Sound: ON</button>
+
+        <!-- SCREEN 1: LANDING & SETUP -->
+        <div id="screen-landing">
+            <h1>NEETQuiz</h1>
+            <p>Real-Time Multiplayer Entrance Exam Game</p>
+            
+            <div style="margin: 20px 0;">
+                <input type="text" id="room-code-input" placeholder="Enter Room Code (e.g. NEET123)" style="text-transform: uppercase;">
+                <input type="text" id="player-name-input" placeholder="Enter Your Name">
+            </div>
+
+            <button class="btn-primary" onclick="setupRoom('HOST')">Host Game</button>
+            <button class="btn-success" onclick="setupRoom('PLAYER')">Join Game</button>
+        </div>
+
+        <!-- SCREEN 2: LOBBY -->
+        <div id="screen-lobby" class="hidden">
+            <h1 id="lobby-room-code">Room: ----</h1>
+            <p id="lobby-status-text">Waiting for players to join...</p>
+            <div id="lobby-player-count" class="badge">Players: 0</div>
+            
+            <ul id="lobby-player-list" class="player-list"></ul>
+
+            <button id="host-start-btn" class="btn-success hidden" onclick="hostStartQuiz()">Start Quiz</button>
+        </div>
+
+        <!-- SCREEN 3: QUESTION -->
+        <div id="screen-question" class="hidden">
+            <div id="question-subject" class="badge">Biology</div>
+            <div id="question-timer" class="timer">30</div>
+            <h2 id="question-text" style="margin-bottom: 20px;">Question text here</h2>
+            
+            <div id="options-container"></div>
+            <p id="question-status-msg" style="margin-top: 15px; font-size: 0.9rem;"></p>
+        </div>
+
+        <!-- SCREEN 4: HOST LEADERBOARD -->
+        <div id="screen-leaderboard" class="hidden">
+            <h1>Leaderboard</h1>
+            <p id="leaderboard-subtitle">Current Player Standings</p>
+
+            <ul id="leaderboard-list" class="player-list"></ul>
+
+            <button id="host-next-btn" class="btn-primary hidden" onclick="hostNextQuestion()">Next Question</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 20 HIGH-YIELD NEET QUESTIONS ---
+        const NEET_QUESTIONS = [
+            // Biology
+            { subject: "Biology (Q1/20)", question: "Which cell organelle is known as the 'powerhouse of the cell'?", options: ["Ribosome", "Mitochondria", "Golgi Apparatus", "Lysosome"], answer: 1 },
+            { subject: "Biology (Q2/20)", question: "In flowering plants, double fertilization was discovered by:", options: ["Strasburger", "Nawaschin", "Hofmeister", "Maheshwari"], answer: 1 },
+            { subject: "Biology (Q3/20)", question: "Which enzyme converts glucose into alcohol during fermentation?", options: ["Zymase", "Invertase", "Diastase", "Maltase"], answer: 0 },
+            { subject: "Biology (Q4/20)", question: "The functional unit of the human kidney is called:", options: ["Neuron", "Nephron", "Glomerulus", "Loop of Henle"], answer: 1 },
+            { subject: "Biology (Q5/20)", question: "Which blood group is known as the universal donor?", options: ["A positive", "AB positive", "O negative", "B negative"], answer: 2 },
+            { subject: "Biology (Q6/20)", question: "Which hormone regulates blood calcium levels?", options: ["Insulin", "Parathyroid Hormone (PTH)", "Thyroxine", "Adrenaline"], answer: 1 },
+            { subject: "Biology (Q7/20)", question: "RuBisCO enzyme is located in which part of the chloroplast?", options: ["Thylakoid membrane", "Stroma", "Granum", "Intermembrane space"], answer: 1 },
+            
+            // Chemistry
+            { subject: "Chemistry (Q8/20)", question: "What is the hybridisation of xenon in XeF4?", options: ["sp3", "sp3d", "sp3d2", "dsp2"], answer: 2 },
+            { subject: "Chemistry (Q9/20)", question: "Which gas is evolved when sodium metal reacts with ethanol?", options: ["Oxygen", "Hydrogen", "Carbon Dioxide", "Methane"], answer: 1 },
+            { subject: "Chemistry (Q10/20)", question: "Equal volumes of gases under identical condition contain equal number of molecules by:", options: ["Boyle's Law", "Charles's Law", "Avogadro's Law", "Dalton's Law"], answer: 2 },
+            { subject: "Chemistry (Q11/20)", question: "The Oxidation state of Chromium in K2Cr2O7 is:", options: ["+3", "+6", "+4", "+2"], answer: 1 },
+            { subject: "Chemistry (Q12/20)", question: "Which of the following is a key greenhouse gas?", options: ["Methane (CH4)", "Nitrogen (N2)", "Argon (Ar)", "Oxygen (O2)"], answer: 0 },
+            { subject: "Chemistry (Q13/20)", question: "Lucas test uses which reagent to distinguish primary, secondary, and tertiary alcohols?", options: ["Conc. HCl + Anhyd. ZnCl2", "Conc. HNO3 + H2SO4", "Alkaline KMnO4", "Tollens' Reagent"], answer: 0 },
+
+            // Physics
+            { subject: "Physics (Q14/20)", question: "What is the SI unit of magnetic flux?", options: ["Tesla", "Weber", "Gauss", "Henry"], answer: 1 },
+            { subject: "Physics (Q15/20)", question: "The dimensional formula for Universal Gravitational Constant (G) is:", options: ["[M^-1 L^3 T^-2]", "[M^1 L^2 T^-1]", "[M^-1 L^2 T^-2]", "[M^0 L^3 T^-2]"], answer: 0 },
+            { subject: "Physics (Q16/20)", question: "Total internal reflection occurs when light travels from:", options: ["Rarer to Denser Medium", "Denser to Rarer Medium", "Vacuum to Water", "Air to Glass"], answer: 1 },
+            { subject: "Physics (Q17/20)", question: "Work done in a closed cyclic thermodynamic process is equal to:", options: ["Zero", "Area enclosed by P-V loop", "Initial Internal Energy", "Infinite"], answer: 1 },
+            { subject: "Physics (Q18/20)", question: "De-Broglie wavelength of a particle is inversely proportional to its:", options: ["Mass only", "Velocity only", "Momentum", "Energy"], answer: 2 },
+            { subject: "Physics (Q19/20)", question: "Which phenomenon proves the transverse wave nature of light?", options: ["Interference", "Diffraction", "Polarization", "Refraction"], answer: 2 },
+            { subject: "Physics (Q20/20)", question: "The electrical resistance of an ideal ammeter is:", options: ["Zero", "Infinite", "100 Ohms", "1 Ohm"], answer: 0 }
+        ];
+
+        // --- FIREBASE DEMO CONFIGURATION (REPLACE WITH YOUR OWN FIREBASE KEYS) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyDemoKeyReplaceWithYoursHere1234567",
+            authDomain: "neetquiz-demo.firebaseapp.com",
+            projectId: "neetquiz-demo",
+            storageBucket: "neetquiz-demo.appspot.com",
+            messagingSenderId: "1234567890",
+            appId: "1:1234567890:web:abcdef123456"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+
+        // --- GAME VARIABLES ---
+        let userRole = null; // 'HOST' or 'PLAYER'
+        let roomCode = "";
+        let playerName = "";
+        let playerId = "player_" + Math.random().toString(36).substr(2, 9);
+        let roomRef = null;
+        let unsubscribeRoom = null;
+        let unsubscribePlayers = null;
+        
+        let timerInterval = null;
+        let audioMuted = false;
+        let audioCtx = null;
+
+        // --- WEB AUDIO API MUSIC & SOUND GENERATOR ---
+        function initAudio() {
+            if(!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playSound(freq, type = "sine", duration = 0.2) {
+            if(audioMuted || !audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e){}
+        }
+
+        function toggleAudio() {
+            audioMuted = !audioMuted;
+            document.getElementById('audio-btn').innerText = audioMuted ? "🔇 Sound: OFF" : "🔊 Sound: ON";
+        }
+
+        // --- UI NAVIGATION ---
+        function showScreen(id) {
+            document.querySelectorAll('.container > div:not(.audio-toggle)').forEach(el => el.classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        // --- ROOM CREATION & JOINING ---
+        async function setupRoom(role) {
+            initAudio();
+            userRole = role;
+            roomCode = document.getElementById('room-code-input').value.trim().toUpperCase();
+            playerName = document.getElementById('player-name-input').value.trim();
+
+            if(!roomCode) return alert("Please enter a Room Code.");
+            if(role === 'PLAYER' && !playerName) return alert("Please enter your name.");
+
+            roomRef = db.collection("neet_rooms").doc(roomCode);
+
+            if(role === 'HOST') {
+                await roomRef.set({
+                    status: "LOBBY",
+                    currentQuestion: 0,
+                    timerEnd: 0,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                const doc = await roomRef.get();
+                if(!doc.exists) return alert("Room code does not exist!");
+                
+                await roomRef.collection("players").doc(playerId).set({
+                    name: playerName,
+                    score: 0,
+                    answered: false
+                });
+            }
+
+            document.getElementById('lobby-room-code').innerText = `Room: ${roomCode}`;
+            showScreen('screen-lobby');
+            listenToRoom();
+        }
+
+        // --- REAL-TIME LISTENERS ---
+        function listenToRoom() {
+            unsubscribeRoom = roomRef.onSnapshot(doc => {
+                const data = doc.data();
+                if(!data) return;
+
+                if(data.status === 'LOBBY') {
+                    showScreen('screen-lobby');
+                    if(userRole === 'HOST') {
+                        document.getElementById('host-start-btn').classList.remove('hidden');
+                    }
+                } else if(data.status === 'QUESTION') {
+                    renderQuestionScreen(data.currentQuestion, data.timerEnd);
+                } else if(data.status === 'LEADERBOARD') {
+                    renderLeaderboardScreen(data.currentQuestion);
+                }
+            });
+
+            unsubscribePlayers = roomRef.collection("players").onSnapshot(snapshot => {
+                const players = [];
+                snapshot.forEach(doc => players.push({ id: doc.id, ...doc.data() }));
+
+                // Update lobby list
+                document.getElementById('lobby-player-count').innerText = `Players: ${players.length}`;
+                const lobbyList = document.getElementById('lobby-player-list');
+                lobbyList.innerHTML = players.map(p => `<li class="player-item"><span>${p.name}</span><span>Ready</span></li>`).join('');
+
+                // Check if all players answered (Auto-advance)
+                if(userRole === 'HOST') {
+                    const allAnswered = players.length > 0 && players.every(p => p.answered === true);
+                    if(allAnswered) {
+                        hostTriggerLeaderboard();
+                    }
+                }
+            });
+        }
+
+        // --- HOST ACTIONS ---
+        async function hostStartQuiz() {
+            await roomRef.update({
+                status: 'QUESTION',
+                currentQuestion: 0,
+                timerEnd: Date.now() + 30000
+            });
+        }
+
+        async function hostNextQuestion() {
+            const doc = await roomRef.get();
+            const nextIdx = doc.data().currentQuestion + 1;
+            
+            if(nextIdx < NEET_QUESTIONS.length) {
+                // Reset answered flag for all players
+                const players = await roomRef.collection("players").get();
+                const batch = db.batch();
+                players.forEach(p => batch.update(p.ref, { answered: false }));
+                await batch.commit();
+
+                await roomRef.update({
+                    status: 'QUESTION',
+                    currentQuestion: nextIdx,
+                    timerEnd: Date.now() + 30000
+                });
+            } else {
+                alert("Quiz finished!");
+            }
+        }
+
+        async function hostTriggerLeaderboard() {
+            clearInterval(timerInterval);
+            await roomRef.update({ status: 'LEADERBOARD' });
+        }
+
+        // --- QUESTION DISPLAY & TIMER ---
+        function renderQuestionScreen(qIdx, timerEnd) {
+            showScreen('screen-question');
+            const q = NEET_QUESTIONS[qIdx];
+            document.getElementById('question-subject').innerText = q.subject;
+            document.getElementById('question-text').innerText = q.question;
+
+            const container = document.getElementById('options-container');
+            container.innerHTML = '';
+
+            playSound(523.25, "triangle", 0.3);
+
+            if(userRole === 'PLAYER') {
+                q.options.forEach((opt, idx) => {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn-option';
+                    btn.innerText = `${String.fromCharCode(65+idx)}. ${opt}`;
+                    btn.onclick = () => submitPlayerAnswer(idx, q.answer, btn);
+                    container.appendChild(btn);
+                });
+                document.getElementById('question-status-msg').innerText = "Select your answer!";
+            } else {
+                q.options.forEach((opt, idx) => {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn-option';
+                    btn.innerText = `${String.fromCharCode(65+idx)}. ${opt}`;
+                    btn.disabled = true;
+                    container.appendChild(btn);
+                });
+                document.getElementById('question-status-msg').innerText = "Host View - Monitoring player submissions...";
+            }
+
+            // Start 30-second timer logic
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                const remaining = Math.max(0, Math.ceil((timerEnd - Date.now()) / 1000));
+                document.getElementById('question-timer').innerText = remaining;
+                
+                if(remaining <= 5 && remaining > 0) playSound(880, "sine", 0.1);
+
+                if(remaining <= 0) {
+                    clearInterval(timerInterval);
+                    if(userRole === 'HOST') hostTriggerLeaderboard();
+                }
+            }, 1000);
+        }
+
+        // --- PLAYER ANSWER SUBMISSION ---
+        async function submitPlayerAnswer(selectedIdx, correctIdx, btn) {
+            document.querySelectorAll('.btn-option').forEach(b => b.disabled = true);
+            btn.classList.add('selected');
+
+            playSound(659.25, "sine", 0.2);
+            document.getElementById('question-status-msg').innerText = "Answer submitted! Waiting for others...";
+
+            const isCorrect = (selectedIdx === correctIdx);
+            const playerRef = roomRef.collection("players").doc(playerId);
+            
+            await db.runTransaction(async (transaction) => {
+                const pDoc = await transaction.get(playerRef);
+                const newScore = (pDoc.data().score || 0) + (isCorrect ? 10 : 0);
+                transaction.update(playerRef, {
+                    score: newScore,
+                    answered: true
+                });
+            });
+        }
+
+        // --- LEADERBOARD DISPLAY ---
+        async function renderLeaderboardScreen(currentQuestionIdx) {
+            clearInterval(timerInterval);
+            showScreen('screen-leaderboard');
+            playSound(783.99, "square", 0.4);
+
+            const snapshot = await roomRef.collection("players").get();
+            let players = [];
+            snapshot.forEach(doc => players.push(doc.data()));
+            players.sort((a, b) => b.score - a.score);
+
+            const list = document.getElementById('leaderboard-list');
+            list.innerHTML = players.map((p, i) => `
+                <li class="player-item">
+                    <span>#${i + 1} ${p.name}</span>
+                    <span>${p.score} pts</span>
+                </li>
+            `).join('');
+
+            if(userRole === 'HOST') {
+                const nextBtn = document.getElementById('host-next-btn');
+                nextBtn.classList.remove('hidden');
+                if(currentQuestionIdx >= NEET_QUESTIONS.length - 1) {
+                    nextBtn.innerText = "Finish Quiz";
+                } else {
+                    nextBtn.innerText = "Next Question";
+                }
+            } else {
+                document.getElementById('leaderboard-subtitle').innerText = "Waiting for host to proceed...";
+            }
+        }
+    </script>
+</body>
+</html>
